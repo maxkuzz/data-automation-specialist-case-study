@@ -73,6 +73,62 @@ Pre výpočet priemernej mesačnej marže produktu som vytvoril transformáciu [
 
 Transformácia agreguje dáta podľa `product_id` a mesiaca. Pre každý produkt a mesiac počíta počet objednávok, predané množstvo, tržby, náklady, celkovú maržu, percentuálnu maržu a priemernú maržu na jednu predanú jednotku. Výstupná tabuľka `product_monthly_margin` sa následne používa v Tableau na vizualizáciu vývoja priemernej mesačnej marže v čase s možnosťou filtrovať konkrétny produkt.
 
+### 2.3. Pricing stratégia
+
+V tejto časti som najprv narazil na dôležité obmedzenie dát. V poskytnutých tabuľkách sa nachádza iba `product_id`, ale nie názov produktu, kategória, značka ani veľkosť balenia. Preto nie je možné presne určiť, ktoré produkty patria do food sortimentu. Z tohto dôvodu som pre účely analýzy identifikoval TOP 5 produktov podľa tržieb zo všetkých dostupných `product_id` a následne som ich priradil k pravdepodobným food / sports nutrition segmentom podľa cenovej hladiny.
+
+Ako metriku pre "dopad na tržby" som zvolil celkové tržby produktu:
+
+`dopad na tržby = SUM(revenue_eur)`
+
+Túto metriku som zvolil preto, že priamo ukazuje, koľko tržieb daný produkt v sledovanom období priniesol. TOP produkty som vypočítal v Keboole v transformácii `05_top_revenue_products` na základe tabuľky `order_items_enriched`.
+
+#### TOP 5 produktov podľa tržieb
+
+| Rank | product_id | Revenue (EUR) | Revenue share | Median price (EUR) | Avg. cost (EUR) | Margin % | Assumed segment |
+|---:|---|---:|---:|---:|---:|---:|---|
+| 1 | `0f89562a368bb1e822b7b3075fa7e18c` | 17 555.03 | 1.56% | 35.04 | 24.43 | 32.35% | whey protein / premium protein |
+| 2 | `2f039d8c907a9c41754a2d11cc799ac1` | 14 114.89 | 1.25% | 20.63 | 12.51 | 40.39% | protein bars / protein snack |
+| 3 | `95bd8e77c045c2d6cec27fb8a9c0c8b4` | 13 097.75 | 1.16% | 9.40 | 3.94 | 61.92% | peanut butter / nut spread |
+| 4 | `dc3710567650e9d59a621c71e4483778` | 10 550.90 | 0.93% | 35.08 | 24.70 | 31.86% | isolate protein / premium protein |
+| 5 | `c7864360e1c1a27bdc4e28294dc3082f` | 10 138.70 | 0.90% | 22.70 | 8.20 | 61.54% | vegan protein / functional food |
+
+#### Konkurenčný benchmark
+
+Keďže nepoznám presný názov produktu za jednotlivými `product_id`, produkty nižšie používam ako porovnateľné benchmark produkty, nie ako presnú zhodu. Ceny konkurencie som porovnával hlavne cez jednotkovú cenu, napríklad EUR/kg. Pri proteínových tyčinkách je porovnanie menej presné, pretože sa líši veľkosť balenia a gramáž jednej tyčinky.
+
+| product_id | Assumed GymBeam product | Dataset median price | GymBeam current price | Myprotein SK comparable | Myprotein price | Nutrend SK comparable | Nutrend price | Confidence |
+|---|---|---:|---:|---|---:|---|---:|---|
+| `0f89562a368bb1e822b7b3075fa7e18c` | True Whey - GymBeam 1000g | 35.04 | 31.95 | Impact Whey Protein Milkshake | 57.46 EUR/kg | 100% Whey Protein | 48.75 EUR/kg | Medium/High |
+| `dc3710567650e9d59a621c71e4483778` | Pure IsoWhey - GymBeam 1000g | 35.08 | 37.95 | Impact Whey Izolát | 96.66 EUR/kg | Iso Whey Prozero | 64.00 EUR/kg | Medium/High |
+| `c7864360e1c1a27bdc4e28294dc3082f` | Ultimate Vegan Protein - GymBeam 1000g | 22.70 | 24.95 | Vegánska proteínová zmes 1000g | 41.99 | Delicious Vegan Protein | 51.11 EUR/kg | Medium |
+| `2f039d8c907a9c41754a2d11cc799ac1` | Proteínová tyčinka Excelent 18 x 85g | 20.63 | 27.30 | 6-vrstvová proteínová tyčinka 12 x 60g | 45.99 | Excelent Protein Bar 18 x 85g | 37.80 | Low/Medium |
+| `95bd8e77c045c2d6cec27fb8a9c0c8b4` | Arašidové maslo - GymBeam 1000g | 9.40 | 5.95 | Prírodné arašidové maslo 1000g | 16.99 | Denuts Cream arašidové maslo | 12.00 EUR/kg | Low/Medium |
+
+#### Pricing pravidlo
+
+Ako základ pre aktuálnu internú cenu som použil `median_price_eur` z datasetu, pretože ide o historickú predajnú cenu za rok 2024 a medián je menej citlivý na extrémne promo ceny. Ceny z webov konkurencie používam iba ako externý trhový benchmark. Rozdiel medzi cenou v datasete a cenou na webe môže byť spôsobený tým, že dáta sú z roku 2024, aktuálne webové ceny sa menia, prebiehajú akcie alebo ide iba o porovnateľný produkt.
+
+Pri odporúčaní ceny som použil jednoduché pravidlo:
+
+`margin_floor_price = avg_cost_eur / (1 - minimum_margin)`
+
+Kde `minimum_margin = 30%`. Cena by nemala klesnúť pod túto hranicu, aby bola chránená minimálna marža. Zároveň som neprenášal celé cenové rozdiely voči konkurencii naraz, pretože pri anonymných produktoch bez presného produktového katalógu by to bolo príliš agresívne. Pri väčších rozdieloch voči trhu preto odporúčam postupnú zmenu ceny.
+
+#### Odporúčanie cien
+
+| product_id | Current price (dataset median) | Recommended price | Change % | Expected impact |
+|---|---:|---:|---:|---|
+| `0f89562a368bb1e822b7b3075fa7e18c` | 35.04 | 35.99 | +2.7% | Mierne zvýšenie ceny. Produkt je stále lacnejší ako porovnateľní konkurenti a marža zostáva nad minimálnou hranicou. |
+| `2f039d8c907a9c41754a2d11cc799ac1` | 20.63 | 22.69 | +10.0% | Postupné zvýšenie ceny. Segment protein snackov má vyššie ceny u konkurencie, ale confidence matchu je nižšia, preto by som cenu zvyšoval opatrne. |
+| `95bd8e77c045c2d6cec27fb8a9c0c8b4` | 9.40 | 9.40 | 0.0% | Cenu by som zatiaľ nemenil. Produkt má vysokú maržu, ale porovnanie s arašidovým maslom má nižšiu istotu a aktuálna cena GymBeam produktu je výrazne nižšia. |
+| `dc3710567650e9d59a621c71e4483778` | 35.08 | 37.95 | +8.2% | Zvýšenie ceny smerom k aktuálnej cene porovnateľného GymBeam premium proteínu. Produkt zostáva výrazne lacnejší ako konkurencia a marža sa zlepší. |
+| `c7864360e1c1a27bdc4e28294dc3082f` | 22.70 | 24.95 | +9.9% | Zvýšenie na úroveň aktuálneho porovnateľného GymBeam vegan proteínu. Benchmark konkurencie naznačuje priestor na vyššiu cenu. |
+
+#### Ako by som tento prístup škáloval
+
+Pre škálovanie na celý food sortiment by bolo potrebné doplniť produktový katalóg s mapovaním `product_id`, názvu produktu, kategórie, značky, veľkosti balenia a jednotky porovnania. Pravidelne by som zbieral aj ceny konkurencie, ideálne denne alebo niekoľkokrát týždenne pri produktoch s vysokým obratom. Pri každom produkte by som počítal aktuálnu cenu, náklad, maržu, cenovú pozíciu voči konkurencii a elasticitu dopytu, ak by bola dostupná. Najväčším úzkym miestom by bola kvalita párovania produktov s konkurenciou, pretože produkty sa môžu líšiť balením, zložením alebo promo mechanikou. Zaviedol by som preto confidence score pre každý match a produkty s nízkou istotou by vyžadovali manuálnu kontrolu. Ako guardrails by som nastavil minimálnu maržu, maximálnu jednorazovú zmenu ceny a pravidlo, že cena sa nemení automaticky pri nízkej kvalite benchmarku. Pri strategických alebo veľmi predávaných produktoch by odporúčania pred nasadením kontroloval category manager.
+
 
 ---
 
