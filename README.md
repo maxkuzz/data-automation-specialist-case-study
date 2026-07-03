@@ -78,7 +78,7 @@ Transformácia agreguje dáta podľa `product_id` a mesiaca. Pre každý produkt
 
 ## 3. Výkonnostný problém v SQL transformácii
 
-Podľa priloženého grafu je jasné, že s rastúcim objemom dát naráža súčasné riešenie na svoje limity. Zatiaľ čo na začiatku dopyt zbehol za hodinu, po pár dňoch to trvá skoro tri hodiny. Ak by sme to neriešili, čoskoro by transformácia nestihla dobehnúť do ranného reportingu
+
 
 ### Čo je príčinou spomalenia
 
