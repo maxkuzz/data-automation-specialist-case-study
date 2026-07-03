@@ -1,0 +1,6 @@
+.agents/
+.codex/
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
+Thumbs.db
